@@ -1,0 +1,45 @@
+esphome:
+  name: modbus-tcp-master-demo
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [modbus_tcp_master]
+
+modbus_tcp_master:
+  host: 192.168.1.50
+  port: 502
+  unit_id: 1
+  update_interval: 15s
+  timeout: 5s
+  registers:
+    - name: "Netzspannung"
+      address: 0
+      register_type: holding
+      value_type: U_WORD
+      scale: 0.1
+    - name: "Leistung"
+      address: 10
+      register_type: input
+      value_type: S_DWORD
+    - name: "Schaltzustand Coil 0"
+      address: 0
+      register_type: coil
+      value_type: U_WORD
