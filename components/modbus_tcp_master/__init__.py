@@ -4,22 +4,21 @@ from esphome.components.modbus.helpers import SENSOR_VALUE_TYPE, TYPE_REGISTER_M
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ADDRESS,
-    CONF_HOST,
     CONF_ID,
     CONF_OFFSET,
     CONF_PORT,
-    CONF_REGISTERS,
     CONF_TIMEOUT,
-    CONF_VALUE_TYPE,
 )
 
-AUTO_LOAD = ["modbus"]
 DEPENDENCIES = ["wifi"]
 MULTI_CONF = True
 
+CONF_HOST = "host"
 CONF_REGISTER_TYPE = "register_type"
+CONF_REGISTERS = "registers"
 CONF_SCALE = "scale"
 CONF_UNIT_ID = "unit_id"
+CONF_VALUE_TYPE = "value_type"
 
 modbus_tcp_master_ns = cg.esphome_ns.namespace("modbus_tcp_master")
 ModbusTcpMaster = modbus_tcp_master_ns.class_(

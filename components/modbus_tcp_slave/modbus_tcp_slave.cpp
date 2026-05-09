@@ -7,6 +7,79 @@ namespace esphome::modbus_tcp_slave {
 
 static const char *const TAG = "modbus_tcp_slave";
 
+static void number_to_payload_(std::vector<uint16_t> &data, int64_t value, SensorValueType value_type) {
+  switch (value_type) {
+    case SensorValueType::U_WORD:
+    case SensorValueType::S_WORD:
+      data.push_back(value & 0xFFFF);
+      break;
+    case SensorValueType::U_DWORD:
+    case SensorValueType::S_DWORD:
+    case SensorValueType::FP32:
+      data.push_back((value & 0xFFFF0000) >> 16);
+      data.push_back(value & 0xFFFF);
+      break;
+    case SensorValueType::U_DWORD_R:
+    case SensorValueType::S_DWORD_R:
+    case SensorValueType::FP32_R:
+      data.push_back(value & 0xFFFF);
+      data.push_back((value & 0xFFFF0000) >> 16);
+      break;
+    case SensorValueType::U_QWORD:
+    case SensorValueType::S_QWORD:
+      data.push_back((value & 0xFFFF000000000000) >> 48);
+      data.push_back((value & 0xFFFF00000000) >> 32);
+      data.push_back((value & 0xFFFF0000) >> 16);
+      data.push_back(value & 0xFFFF);
+      break;
+    case SensorValueType::U_QWORD_R:
+    case SensorValueType::S_QWORD_R:
+      data.push_back(value & 0xFFFF);
+      data.push_back((value & 0xFFFF0000) >> 16);
+      data.push_back((value & 0xFFFF00000000) >> 32);
+      data.push_back((value & 0xFFFF000000000000) >> 48);
+      break;
+    case SensorValueType::RAW:
+    default:
+      break;
+  }
+}
+
+static int64_t payload_to_number_(const std::vector<uint8_t> &data, SensorValueType value_type) {
+  switch (value_type) {
+    case SensorValueType::U_WORD:
+      return modbus::helpers::get_data<uint16_t>(data, 0);
+    case SensorValueType::U_DWORD:
+    case SensorValueType::FP32:
+      return modbus::helpers::get_data<uint32_t>(data, 0);
+    case SensorValueType::U_DWORD_R:
+    case SensorValueType::FP32_R: {
+      auto value = modbus::helpers::get_data<uint32_t>(data, 0);
+      return static_cast<uint32_t>(value & 0xFFFF) << 16 | (value & 0xFFFF0000) >> 16;
+    }
+    case SensorValueType::S_WORD:
+      return modbus::helpers::get_data<int16_t>(data, 0);
+    case SensorValueType::S_DWORD:
+      return modbus::helpers::get_data<int32_t>(data, 0);
+    case SensorValueType::S_DWORD_R: {
+      auto value = modbus::helpers::get_data<uint32_t>(data, 0);
+      uint32_t sign_bit = (value & 0x8000) << 16;
+      return static_cast<int32_t>(((value & 0x7FFF) << 16 | (value & 0xFFFF0000) >> 16) | sign_bit);
+    }
+    case SensorValueType::U_QWORD:
+    case SensorValueType::S_QWORD:
+      return modbus::helpers::get_data<uint64_t>(data, 0);
+    case SensorValueType::U_QWORD_R:
+    case SensorValueType::S_QWORD_R: {
+      auto value = modbus::helpers::get_data<uint64_t>(data, 0);
+      return (value << 48) | (value >> 48) | ((value & 0xFFFF0000) << 16) | ((value >> 16) & 0xFFFF0000);
+    }
+    case SensorValueType::RAW:
+    default:
+      return 0;
+  }
+}
+
 void ModbusTcpSlave::setup() {
   this->server_ = std::make_unique<WiFiServer>(this->port_);
   this->server_->begin();
@@ -184,7 +257,7 @@ bool ModbusTcpSlave::fill_read_response_(uint16_t start_address, uint16_t count,
         return false;
       }
       std::vector<uint16_t> payload;
-      modbus::helpers::number_to_payload(payload, server_register->read_lambda(), server_register->value_type);
+      number_to_payload_(payload, server_register->read_lambda(), server_register->value_type);
       words.insert(words.end(), payload.begin(), payload.end());
       current += server_register->register_count;
       continue;
@@ -209,8 +282,7 @@ bool ModbusTcpSlave::write_single_register_(uint16_t address, uint16_t value) {
   }
 
   std::vector<uint8_t> payload{static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value & 0xFF)};
-  return server_register->write_lambda(
-      modbus::helpers::payload_to_number(payload, server_register->value_type, 0, 0xFFFFFFFF));
+  return server_register->write_lambda(payload_to_number_(payload, server_register->value_type));
 }
 
 bool ModbusTcpSlave::write_multiple_registers_(uint16_t address, uint16_t count, const std::vector<uint8_t> &payload) {
@@ -218,8 +290,7 @@ bool ModbusTcpSlave::write_multiple_registers_(uint16_t address, uint16_t count,
   if (server_register == nullptr || server_register->register_count != count || !server_register->write_lambda) {
     return false;
   }
-  return server_register->write_lambda(
-      modbus::helpers::payload_to_number(payload, server_register->value_type, 0, 0xFFFFFFFF));
+  return server_register->write_lambda(payload_to_number_(payload, server_register->value_type));
 }
 
 }  // namespace esphome::modbus_tcp_slave

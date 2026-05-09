@@ -7,6 +7,69 @@ namespace esphome::modbus_tcp_master {
 
 static const char *const TAG = "modbus_tcp_master";
 
+static size_t required_payload_size_(modbus::helpers::SensorValueType sensor_value_type) {
+  switch (sensor_value_type) {
+    case modbus::helpers::SensorValueType::U_WORD:
+    case modbus::helpers::SensorValueType::S_WORD:
+      return 2;
+    case modbus::helpers::SensorValueType::U_DWORD:
+    case modbus::helpers::SensorValueType::FP32:
+    case modbus::helpers::SensorValueType::U_DWORD_R:
+    case modbus::helpers::SensorValueType::FP32_R:
+    case modbus::helpers::SensorValueType::S_DWORD:
+    case modbus::helpers::SensorValueType::S_DWORD_R:
+      return 4;
+    case modbus::helpers::SensorValueType::U_QWORD:
+    case modbus::helpers::SensorValueType::S_QWORD:
+    case modbus::helpers::SensorValueType::U_QWORD_R:
+    case modbus::helpers::SensorValueType::S_QWORD_R:
+      return 8;
+    case modbus::helpers::SensorValueType::RAW:
+    default:
+      return 0;
+  }
+}
+
+static int64_t payload_to_number_(const std::vector<uint8_t> &data, modbus::helpers::SensorValueType value_type) {
+  const size_t required_size = required_payload_size_(value_type);
+  if (required_size == 0 || data.size() < required_size) {
+    return 0;
+  }
+
+  switch (value_type) {
+    case modbus::helpers::SensorValueType::U_WORD:
+      return modbus::helpers::get_data<uint16_t>(data, 0);
+    case modbus::helpers::SensorValueType::U_DWORD:
+    case modbus::helpers::SensorValueType::FP32:
+      return modbus::helpers::get_data<uint32_t>(data, 0);
+    case modbus::helpers::SensorValueType::U_DWORD_R:
+    case modbus::helpers::SensorValueType::FP32_R: {
+      auto value = modbus::helpers::get_data<uint32_t>(data, 0);
+      return static_cast<uint32_t>(value & 0xFFFF) << 16 | (value & 0xFFFF0000) >> 16;
+    }
+    case modbus::helpers::SensorValueType::S_WORD:
+      return modbus::helpers::get_data<int16_t>(data, 0);
+    case modbus::helpers::SensorValueType::S_DWORD:
+      return modbus::helpers::get_data<int32_t>(data, 0);
+    case modbus::helpers::SensorValueType::S_DWORD_R: {
+      auto value = modbus::helpers::get_data<uint32_t>(data, 0);
+      uint32_t sign_bit = (value & 0x8000) << 16;
+      return static_cast<int32_t>(((value & 0x7FFF) << 16 | (value & 0xFFFF0000) >> 16) | sign_bit);
+    }
+    case modbus::helpers::SensorValueType::U_QWORD:
+    case modbus::helpers::SensorValueType::S_QWORD:
+      return modbus::helpers::get_data<uint64_t>(data, 0);
+    case modbus::helpers::SensorValueType::U_QWORD_R:
+    case modbus::helpers::SensorValueType::S_QWORD_R: {
+      auto value = modbus::helpers::get_data<uint64_t>(data, 0);
+      return (value << 48) | (value >> 48) | ((value & 0xFFFF0000) << 16) | ((value >> 16) & 0xFFFF0000);
+    }
+    case modbus::helpers::SensorValueType::RAW:
+    default:
+      return 0;
+  }
+}
+
 void ModbusTcpMaster::dump_config() {
   ESP_LOGCONFIG(TAG, "Modbus TCP Master:");
   ESP_LOGCONFIG(TAG, "  Host: %s", this->host_.c_str());
@@ -131,7 +194,7 @@ void ModbusTcpMaster::update() {
       continue;
     }
 
-    const int64_t raw = modbus::helpers::payload_to_number(payload, item->value_type_, 0, 0xFFFFFFFF);
+    const int64_t raw = payload_to_number_(payload, item->value_type_);
     float value = modbus::helpers::value_type_is_float(item->value_type_)
                       ? bit_cast<float>(static_cast<uint32_t>(raw))
                       : static_cast<float>(raw);

@@ -8,7 +8,6 @@ from esphome.components.modbus.helpers import (
 import esphome.config_validation as cv
 from esphome.const import CONF_ADDRESS, CONF_ID, CONF_PORT
 
-AUTO_LOAD = ["modbus"]
 DEPENDENCIES = ["wifi"]
 MULTI_CONF = True
 
