@@ -30,6 +30,7 @@ REGISTER_TYPE_TO_FUNCTION_CODE = {
     "coil": 0x01,
     "discrete": 0x02,
     "holding": 0x03,
+    "input": 0x04,
     "read": 0x04,
 }
 
@@ -37,7 +38,7 @@ MASTER_REGISTER_SCHEMA = sensor.sensor_schema(ModbusTcpSensor).extend(
     {
         cv.Required(CONF_ADDRESS): cv.positive_int,
         cv.Optional(CONF_REGISTER_TYPE, default="holding"): cv.one_of(
-            "holding", "read", "coil", "discrete", lower=True
+            "holding", "input", "read", "coil", "discrete", lower=True
         ),
         cv.Optional(CONF_VALUE_TYPE, default="U_WORD"): cv.enum(SENSOR_VALUE_TYPE),
         cv.Optional(CONF_SCALE, default=1.0): cv.float_,

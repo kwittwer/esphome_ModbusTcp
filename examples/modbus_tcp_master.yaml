@@ -37,7 +37,7 @@ modbus_tcp_master:
       scale: 0.1
     - name: "Leistung"
       address: 10
-      register_type: read
+      register_type: input
       value_type: S_DWORD
     - name: "Schaltzustand Coil 0"
       address: 0
