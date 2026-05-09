@@ -79,6 +79,9 @@ class ModbusTcpSlave : public Component {
   void send_response_(uint16_t transaction_id, const std::vector<uint8_t> &pdu);
   ServerRegister *find_register_(uint16_t address) const;
   bool fill_read_response_(uint16_t start_address, uint16_t count, std::vector<uint16_t> &words) const;
+  bool fill_bit_response_(uint16_t start_address, uint16_t count, std::vector<uint8_t> &bits) const;
+  bool write_single_coil_(uint16_t address, bool value);
+  bool write_multiple_coils_(uint16_t address, uint16_t count, const std::vector<uint8_t> &payload);
   bool write_single_register_(uint16_t address, uint16_t value);
   bool write_multiple_registers_(uint16_t address, uint16_t count, const std::vector<uint8_t> &payload);
 

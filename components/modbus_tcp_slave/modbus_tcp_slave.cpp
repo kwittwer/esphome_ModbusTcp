@@ -6,6 +6,14 @@
 namespace esphome::modbus_tcp_slave {
 
 static const char *const TAG = "modbus_tcp_slave";
+static constexpr uint8_t FC_READ_COILS = 0x01;
+static constexpr uint8_t FC_READ_DISCRETE_INPUTS = 0x02;
+static constexpr uint8_t FC_READ_HOLDING_REGISTERS = 0x03;
+static constexpr uint8_t FC_READ_INPUT_REGISTERS = 0x04;
+static constexpr uint8_t FC_WRITE_SINGLE_COIL = 0x05;
+static constexpr uint8_t FC_WRITE_SINGLE_REGISTER = 0x06;
+static constexpr uint8_t FC_WRITE_MULTIPLE_COILS = 0x0F;
+static constexpr uint8_t FC_WRITE_MULTIPLE_REGISTERS = 0x10;
 
 static void number_to_payload_(std::vector<uint16_t> &data, int64_t value, SensorValueType value_type) {
   switch (value_type) {
@@ -153,9 +161,30 @@ void ModbusTcpSlave::handle_request_(uint16_t transaction_id, const std::vector<
     return;
   }
 
-  if ((function_code == modbus::ModbusFunctionCode::READ_HOLDING_REGISTERS ||
-       function_code == modbus::ModbusFunctionCode::READ_INPUT_REGISTERS) &&
-      frame.size() >= 6) {
+  if ((function_code == FC_READ_COILS || function_code == FC_READ_DISCRETE_INPUTS) && frame.size() >= 6) {
+    const uint16_t start_address = (uint16_t(frame[2]) << 8) | frame[3];
+    const uint16_t count = (uint16_t(frame[4]) << 8) | frame[5];
+    if (count == 0) {
+      this->send_exception_(transaction_id, function_code, modbus::ModbusExceptionCode::ILLEGAL_DATA_VALUE);
+      return;
+    }
+
+    std::vector<uint8_t> bits;
+    if (!this->fill_bit_response_(start_address, count, bits)) {
+      this->send_exception_(transaction_id, function_code, modbus::ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+      return;
+    }
+
+    std::vector<uint8_t> pdu;
+    pdu.reserve(2 + bits.size());
+    pdu.push_back(function_code);
+    pdu.push_back(static_cast<uint8_t>(bits.size()));
+    pdu.insert(pdu.end(), bits.begin(), bits.end());
+    this->send_response_(transaction_id, pdu);
+    return;
+  }
+
+  if ((function_code == FC_READ_HOLDING_REGISTERS || function_code == FC_READ_INPUT_REGISTERS) && frame.size() >= 6) {
     const uint16_t start_address = (uint16_t(frame[2]) << 8) | frame[3];
     const uint16_t count = (uint16_t(frame[4]) << 8) | frame[5];
     std::vector<uint16_t> words;
@@ -176,7 +205,24 @@ void ModbusTcpSlave::handle_request_(uint16_t transaction_id, const std::vector<
     return;
   }
 
-  if (function_code == modbus::ModbusFunctionCode::WRITE_SINGLE_REGISTER && frame.size() >= 6) {
+  if (function_code == FC_WRITE_SINGLE_COIL && frame.size() >= 6) {
+    const uint16_t address = (uint16_t(frame[2]) << 8) | frame[3];
+    const uint16_t value = (uint16_t(frame[4]) << 8) | frame[5];
+    if (value != 0x0000 && value != 0xFF00) {
+      this->send_exception_(transaction_id, function_code, modbus::ModbusExceptionCode::ILLEGAL_DATA_VALUE);
+      return;
+    }
+    if (!this->write_single_coil_(address, value == 0xFF00)) {
+      this->send_exception_(transaction_id, function_code, modbus::ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+      return;
+    }
+
+    std::vector<uint8_t> pdu(frame.begin() + 1, frame.begin() + 6);
+    this->send_response_(transaction_id, pdu);
+    return;
+  }
+
+  if (function_code == FC_WRITE_SINGLE_REGISTER && frame.size() >= 6) {
     const uint16_t address = (uint16_t(frame[2]) << 8) | frame[3];
     const uint16_t value = (uint16_t(frame[4]) << 8) | frame[5];
     if (!this->write_single_register_(address, value)) {
@@ -189,7 +235,27 @@ void ModbusTcpSlave::handle_request_(uint16_t transaction_id, const std::vector<
     return;
   }
 
-  if (function_code == modbus::ModbusFunctionCode::WRITE_MULTIPLE_REGISTERS && frame.size() >= 7) {
+  if (function_code == FC_WRITE_MULTIPLE_COILS && frame.size() >= 7) {
+    const uint16_t address = (uint16_t(frame[2]) << 8) | frame[3];
+    const uint16_t count = (uint16_t(frame[4]) << 8) | frame[5];
+    const uint8_t byte_count = frame[6];
+    const size_t expected_byte_count = (static_cast<size_t>(count) + 7U) / 8U;
+    if (count == 0 || byte_count != expected_byte_count || frame.size() < static_cast<size_t>(7 + byte_count)) {
+      this->send_exception_(transaction_id, function_code, modbus::ModbusExceptionCode::ILLEGAL_DATA_VALUE);
+      return;
+    }
+    std::vector<uint8_t> payload(frame.begin() + 7, frame.begin() + 7 + byte_count);
+    if (!this->write_multiple_coils_(address, count, payload)) {
+      this->send_exception_(transaction_id, function_code, modbus::ModbusExceptionCode::ILLEGAL_DATA_ADDRESS);
+      return;
+    }
+
+    std::vector<uint8_t> pdu{function_code, frame[2], frame[3], frame[4], frame[5]};
+    this->send_response_(transaction_id, pdu);
+    return;
+  }
+
+  if (function_code == FC_WRITE_MULTIPLE_REGISTERS && frame.size() >= 7) {
     const uint16_t address = (uint16_t(frame[2]) << 8) | frame[3];
     const uint16_t count = (uint16_t(frame[4]) << 8) | frame[5];
     const uint8_t byte_count = frame[6];
@@ -272,6 +338,48 @@ bool ModbusTcpSlave::fill_read_response_(uint16_t start_address, uint16_t count,
     return false;
   }
 
+  return true;
+}
+
+bool ModbusTcpSlave::fill_bit_response_(uint16_t start_address, uint16_t count, std::vector<uint8_t> &bits) const {
+  bits.assign((static_cast<size_t>(count) + 7U) / 8U, 0);
+  for (uint16_t offset = 0; offset < count; offset++) {
+    auto *server_register = this->find_register_(start_address + offset);
+    if (server_register == nullptr || server_register->register_count != 1 || !server_register->read_lambda) {
+      return false;
+    }
+    if (server_register->read_lambda() != 0) {
+      bits[offset / 8] |= static_cast<uint8_t>(1U << (offset % 8));
+    }
+  }
+  return true;
+}
+
+bool ModbusTcpSlave::write_single_coil_(uint16_t address, bool value) {
+  auto *server_register = this->find_register_(address);
+  if (server_register == nullptr || server_register->register_count != 1 || !server_register->write_lambda) {
+    return false;
+  }
+  return server_register->write_lambda(value ? 1 : 0);
+}
+
+bool ModbusTcpSlave::write_multiple_coils_(uint16_t address, uint16_t count, const std::vector<uint8_t> &payload) {
+  std::vector<ServerRegister *> registers;
+  registers.reserve(count);
+  for (uint16_t offset = 0; offset < count; offset++) {
+    auto *server_register = this->find_register_(address + offset);
+    if (server_register == nullptr || server_register->register_count != 1 || !server_register->write_lambda) {
+      return false;
+    }
+    registers.push_back(server_register);
+  }
+
+  for (uint16_t offset = 0; offset < count; offset++) {
+    const bool value = (payload[offset / 8] & (1U << (offset % 8))) != 0;
+    if (!registers[offset]->write_lambda(value ? 1 : 0)) {
+      return false;
+    }
+  }
   return true;
 }
 

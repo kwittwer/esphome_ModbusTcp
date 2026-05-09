@@ -6,6 +6,10 @@
 namespace esphome::modbus_tcp_master {
 
 static const char *const TAG = "modbus_tcp_master";
+static constexpr uint8_t FC_READ_COILS = 0x01;
+static constexpr uint8_t FC_READ_DISCRETE_INPUTS = 0x02;
+static constexpr uint8_t FC_READ_HOLDING_REGISTERS = 0x03;
+static constexpr uint8_t FC_READ_INPUT_REGISTERS = 0x04;
 
 static size_t required_payload_size_(modbus::helpers::SensorValueType sensor_value_type) {
   switch (sensor_value_type) {
@@ -114,9 +118,12 @@ bool ModbusTcpMaster::read_registers_(ModbusTcpSensor *item, std::vector<uint8_t
   }
 
   const uint16_t transaction_id = ++this->transaction_id_;
-  const uint8_t function =
-      item->register_type_ == modbus::ModbusRegisterType::READ ? modbus::ModbusFunctionCode::READ_INPUT_REGISTERS
-                                                               : modbus::ModbusFunctionCode::READ_HOLDING_REGISTERS;
+  const uint8_t function = item->function_code_;
+  if (function != FC_READ_COILS && function != FC_READ_DISCRETE_INPUTS && function != FC_READ_HOLDING_REGISTERS &&
+      function != FC_READ_INPUT_REGISTERS) {
+    ESP_LOGW(TAG, "Unsupported configured function code 0x%02X", function);
+    return false;
+  }
 
   uint8_t request[12] = {
       static_cast<uint8_t>(transaction_id >> 8),
@@ -194,7 +201,10 @@ void ModbusTcpMaster::update() {
       continue;
     }
 
-    const int64_t raw = payload_to_number_(payload, item->value_type_);
+    int64_t raw = payload_to_number_(payload, item->value_type_);
+    if ((item->function_code_ == FC_READ_COILS || item->function_code_ == FC_READ_DISCRETE_INPUTS) && !payload.empty()) {
+      raw = payload[0] & 0x01;
+    }
     float value = modbus::helpers::value_type_is_float(item->value_type_)
                       ? bit_cast<float>(static_cast<uint32_t>(raw))
                       : static_cast<float>(raw);

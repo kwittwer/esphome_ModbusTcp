@@ -39,3 +39,7 @@ modbus_tcp_master:
       address: 10
       register_type: read
       value_type: S_DWORD
+    - name: "Schaltzustand Coil 0"
+      address: 0
+      register_type: coil
+      value_type: U_WORD

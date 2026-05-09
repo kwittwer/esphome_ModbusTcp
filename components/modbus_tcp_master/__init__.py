@@ -25,17 +25,20 @@ ModbusTcpMaster = modbus_tcp_master_ns.class_(
     "ModbusTcpMaster", cg.PollingComponent
 )
 ModbusTcpSensor = modbus_tcp_master_ns.class_("ModbusTcpSensor", sensor.Sensor)
-ModbusRegisterType = cg.esphome_ns.namespace("modbus").enum("ModbusRegisterType")
 
-REGISTER_TYPES = {
-    "holding": ModbusRegisterType.HOLDING,
-    "read": ModbusRegisterType.READ,
+REGISTER_TYPE_TO_FUNCTION_CODE = {
+    "coil": 0x01,
+    "discrete": 0x02,
+    "holding": 0x03,
+    "read": 0x04,
 }
 
 MASTER_REGISTER_SCHEMA = sensor.sensor_schema(ModbusTcpSensor).extend(
     {
         cv.Required(CONF_ADDRESS): cv.positive_int,
-        cv.Optional(CONF_REGISTER_TYPE, default="holding"): cv.enum(REGISTER_TYPES),
+        cv.Optional(CONF_REGISTER_TYPE, default="holding"): cv.one_of(
+            "holding", "read", "coil", "discrete", lower=True
+        ),
         cv.Optional(CONF_VALUE_TYPE, default="U_WORD"): cv.enum(SENSOR_VALUE_TYPE),
         cv.Optional(CONF_SCALE, default=1.0): cv.float_,
         cv.Optional(CONF_OFFSET, default=0.0): cv.float_,
@@ -67,9 +70,15 @@ async def to_code(config):
     for register in config[CONF_REGISTERS]:
         sens = await sensor.new_sensor(register)
         cg.add(sens.set_address(register[CONF_ADDRESS]))
-        cg.add(sens.set_register_type(register[CONF_REGISTER_TYPE]))
+        function_code = REGISTER_TYPE_TO_FUNCTION_CODE[register[CONF_REGISTER_TYPE]]
+        cg.add(sens.set_function_code(function_code))
         cg.add(sens.set_value_type(register[CONF_VALUE_TYPE]))
-        cg.add(sens.set_register_count(TYPE_REGISTER_MAP[register[CONF_VALUE_TYPE]]))
+        register_count = (
+            1
+            if register[CONF_REGISTER_TYPE] in ("coil", "discrete")
+            else TYPE_REGISTER_MAP[register[CONF_VALUE_TYPE]]
+        )
+        cg.add(sens.set_register_count(register_count))
         cg.add(sens.set_scale(register[CONF_SCALE]))
         cg.add(sens.set_offset(register[CONF_OFFSET]))
         cg.add(var.add_sensor(sens))

@@ -19,7 +19,7 @@ namespace esphome::modbus_tcp_master {
 class ModbusTcpSensor : public sensor::Sensor {
  public:
   void set_address(uint16_t address) { this->address_ = address; }
-  void set_register_type(modbus::ModbusRegisterType register_type) { this->register_type_ = register_type; }
+  void set_function_code(uint8_t function_code) { this->function_code_ = function_code; }
   void set_value_type(modbus::helpers::SensorValueType value_type) { this->value_type_ = value_type; }
   void set_register_count(uint8_t register_count) { this->register_count_ = register_count; }
   void set_scale(float scale) { this->scale_ = scale; }
@@ -29,7 +29,7 @@ class ModbusTcpSensor : public sensor::Sensor {
   friend class ModbusTcpMaster;
 
   uint16_t address_{0};
-  modbus::ModbusRegisterType register_type_{modbus::ModbusRegisterType::HOLDING};
+  uint8_t function_code_{0x03};
   modbus::helpers::SensorValueType value_type_{modbus::helpers::SensorValueType::U_WORD};
   uint8_t register_count_{1};
   float scale_{1.0f};
