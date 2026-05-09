@@ -14,6 +14,7 @@ static constexpr uint8_t FC_WRITE_SINGLE_COIL = 0x05;
 static constexpr uint8_t FC_WRITE_SINGLE_REGISTER = 0x06;
 static constexpr uint8_t FC_WRITE_MULTIPLE_COILS = 0x0F;
 static constexpr uint8_t FC_WRITE_MULTIPLE_REGISTERS = 0x10;
+static constexpr size_t BITS_PER_BYTE = 8U;
 
 static void number_to_payload_(std::vector<uint16_t> &data, int64_t value, SensorValueType value_type) {
   switch (value_type) {
@@ -239,7 +240,7 @@ void ModbusTcpSlave::handle_request_(uint16_t transaction_id, const std::vector<
     const uint16_t address = (uint16_t(frame[2]) << 8) | frame[3];
     const uint16_t count = (uint16_t(frame[4]) << 8) | frame[5];
     const uint8_t byte_count = frame[6];
-    const size_t expected_byte_count = (static_cast<size_t>(count) + 7U) / 8U;
+    const size_t expected_byte_count = (static_cast<size_t>(count) + (BITS_PER_BYTE - 1U)) / BITS_PER_BYTE;
     if (count == 0 || byte_count != expected_byte_count || frame.size() < static_cast<size_t>(7 + byte_count)) {
       this->send_exception_(transaction_id, function_code, modbus::ModbusExceptionCode::ILLEGAL_DATA_VALUE);
       return;
@@ -342,14 +343,14 @@ bool ModbusTcpSlave::fill_read_response_(uint16_t start_address, uint16_t count,
 }
 
 bool ModbusTcpSlave::fill_bit_response_(uint16_t start_address, uint16_t count, std::vector<uint8_t> &bits) const {
-  bits.assign((static_cast<size_t>(count) + 7U) / 8U, 0);
+  bits.assign((static_cast<size_t>(count) + (BITS_PER_BYTE - 1U)) / BITS_PER_BYTE, 0);
   for (uint16_t offset = 0; offset < count; offset++) {
     auto *server_register = this->find_register_(start_address + offset);
     if (server_register == nullptr || server_register->register_count != 1 || !server_register->read_lambda) {
       return false;
     }
     if (server_register->read_lambda() != 0) {
-      bits[offset / 8] |= static_cast<uint8_t>(1U << (offset % 8));
+      bits[offset / BITS_PER_BYTE] |= static_cast<uint8_t>(1U << (offset % BITS_PER_BYTE));
     }
   }
   return true;
@@ -375,7 +376,7 @@ bool ModbusTcpSlave::write_multiple_coils_(uint16_t address, uint16_t count, con
   }
 
   for (uint16_t offset = 0; offset < count; offset++) {
-    const bool value = (payload[offset / 8] & (1U << (offset % 8))) != 0;
+    const bool value = (payload[offset / BITS_PER_BYTE] & (1U << (offset % BITS_PER_BYTE))) != 0;
     if (!registers[offset]->write_lambda(value ? 1 : 0)) {
       return false;
     }
