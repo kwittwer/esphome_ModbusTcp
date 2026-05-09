@@ -1,12 +1,11 @@
 import esphome.codegen as cg
-from esphome.components.const import CONF_ENABLED
 from esphome.components.modbus.helpers import (
     CPP_TYPE_REGISTER_MAP,
     SENSOR_VALUE_TYPE,
     TYPE_REGISTER_MAP,
 )
 import esphome.config_validation as cv
-from esphome.const import CONF_ADDRESS, CONF_ID, CONF_PORT
+from esphome.const import CONF_ADDRESS, CONF_ENABLED, CONF_ID, CONF_PORT
 
 DEPENDENCIES = ["wifi"]
 MULTI_CONF = True
