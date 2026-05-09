@@ -16,6 +16,10 @@ static constexpr uint8_t FC_WRITE_MULTIPLE_COILS = 0x0F;
 static constexpr uint8_t FC_WRITE_MULTIPLE_REGISTERS = 0x10;
 static constexpr size_t BITS_PER_BYTE = 8U;
 
+static inline size_t required_bytes_for_bits_(uint16_t count) {
+  return (static_cast<size_t>(count) + (BITS_PER_BYTE - 1U)) / BITS_PER_BYTE;
+}
+
 static void number_to_payload_(std::vector<uint16_t> &data, int64_t value, SensorValueType value_type) {
   switch (value_type) {
     case SensorValueType::U_WORD:
@@ -240,7 +244,7 @@ void ModbusTcpSlave::handle_request_(uint16_t transaction_id, const std::vector<
     const uint16_t address = (uint16_t(frame[2]) << 8) | frame[3];
     const uint16_t count = (uint16_t(frame[4]) << 8) | frame[5];
     const uint8_t byte_count = frame[6];
-    const size_t expected_byte_count = (static_cast<size_t>(count) + (BITS_PER_BYTE - 1U)) / BITS_PER_BYTE;
+    const size_t expected_byte_count = required_bytes_for_bits_(count);
     if (count == 0 || byte_count != expected_byte_count || frame.size() < static_cast<size_t>(7 + byte_count)) {
       this->send_exception_(transaction_id, function_code, modbus::ModbusExceptionCode::ILLEGAL_DATA_VALUE);
       return;
@@ -343,7 +347,7 @@ bool ModbusTcpSlave::fill_read_response_(uint16_t start_address, uint16_t count,
 }
 
 bool ModbusTcpSlave::fill_bit_response_(uint16_t start_address, uint16_t count, std::vector<uint8_t> &bits) const {
-  bits.assign((static_cast<size_t>(count) + (BITS_PER_BYTE - 1U)) / BITS_PER_BYTE, 0);
+  bits.assign(required_bytes_for_bits_(count), 0);
   for (uint16_t offset = 0; offset < count; offset++) {
     auto *server_register = this->find_register_(start_address + offset);
     if (server_register == nullptr || server_register->register_count != 1 || !server_register->read_lambda) {
