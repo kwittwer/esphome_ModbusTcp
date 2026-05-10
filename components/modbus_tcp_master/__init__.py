@@ -1,6 +1,5 @@
 import esphome.codegen as cg
 from esphome.components import sensor
-from esphome.components.modbus.helpers import SENSOR_VALUE_TYPE, TYPE_REGISTER_MAP
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ADDRESS,
@@ -10,8 +9,24 @@ from esphome.const import (
     CONF_TIMEOUT,
 )
 
-DEPENDENCIES = ["wifi", "modbus"]
+DEPENDENCIES = ["wifi"]
 MULTI_CONF = True
+
+TYPE_REGISTER_MAP = {
+    "U_WORD": 1,
+    "S_WORD": 1,
+    "U_DWORD": 2,
+    "S_DWORD": 2,
+    "U_DWORD_R": 2,
+    "S_DWORD_R": 2,
+    "FP32": 2,
+    "FP32_R": 2,
+    "U_QWORD": 4,
+    "S_QWORD": 4,
+    "U_QWORD_R": 4,
+    "S_QWORD_R": 4,
+    "RAW": 0,
+}
 
 CONF_HOST = "host"
 CONF_REGISTER_TYPE = "register_type"
@@ -25,6 +40,28 @@ ModbusTcpMaster = modbus_tcp_master_ns.class_(
     "ModbusTcpMaster", cg.PollingComponent
 )
 ModbusTcpSensor = modbus_tcp_master_ns.class_("ModbusTcpSensor", sensor.Sensor)
+modbus_ns = cg.esphome_ns.namespace("modbus")
+modbus_helpers_ns = modbus_ns.namespace("helpers")
+SensorValueType_ns = modbus_helpers_ns.namespace("SensorValueType")
+SensorValueType = SensorValueType_ns.enum("SensorValueType")
+
+# Local Modbus Value Type Mapping
+SENSOR_VALUE_TYPE = {
+    "U_WORD": SensorValueType.U_WORD,
+    "S_WORD": SensorValueType.S_WORD,
+    "U_DWORD": SensorValueType.U_DWORD,
+    "S_DWORD": SensorValueType.S_DWORD,
+    "U_DWORD_R": SensorValueType.U_DWORD_R,
+    "S_DWORD_R": SensorValueType.S_DWORD_R,
+    "FP32": SensorValueType.FP32,
+    "FP32_R": SensorValueType.FP32_R,
+    "U_QWORD": SensorValueType.U_QWORD,
+    "S_QWORD": SensorValueType.S_QWORD,
+    "U_QWORD_R": SensorValueType.U_QWORD_R,
+    "S_QWORD_R": SensorValueType.S_QWORD_R,
+    "RAW": SensorValueType.RAW,
+}
+
 
 REGISTER_TYPE_TO_FUNCTION_CODE = {
     "coil": 0x01,

@@ -1,7 +1,6 @@
 #pragma once
 
-#include "esphome/components/modbus/modbus_definitions.h"
-#include "esphome/components/modbus/modbus_helpers.h"
+#include "modbus_definitions.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/core/component.h"
 
