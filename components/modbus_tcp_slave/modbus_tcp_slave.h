@@ -8,12 +8,10 @@
 #include <memory>
 #include <type_traits>
 #include <vector>
-
-#ifdef USE_ESP32
-#include <WiFi.h>
-#elif defined(USE_ESP8266)
-#include <ESP8266WiFi.h>
-#endif
+#include <sys/socket.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <cstring>
 
 namespace esphome::modbus_tcp_slave {
 
@@ -87,8 +85,8 @@ class ModbusTcpSlave : public Component {
 
   uint16_t port_{502};
   uint8_t unit_id_{1};
-  std::unique_ptr<WiFiServer> server_;
-  WiFiClient client_;
+  int server_socket_{-1};
+  int client_socket_{-1};
   std::vector<uint8_t> rx_buffer_;
   std::vector<ServerRegister *> server_registers_;
   ServerCourtesyResponse server_courtesy_response_{};

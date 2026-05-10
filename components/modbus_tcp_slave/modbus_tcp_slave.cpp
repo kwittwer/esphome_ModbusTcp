@@ -3,6 +3,10 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
+#include <fcntl.h>
+#include <cstring>
+#include <cerrno>
+
 namespace esphome::modbus_tcp_slave {
 
 static const char *const TAG = "modbus_tcp_slave";
@@ -94,9 +98,44 @@ static int64_t payload_to_number_(const std::vector<uint8_t> &data, SensorValueT
 }
 
 void ModbusTcpSlave::setup() {
-  this->server_ = std::make_unique<WiFiServer>(this->port_);
-  this->server_->begin();
-  this->server_->setNoDelay(true);
+  // Create server socket
+  this->server_socket_ = socket(AF_INET, SOCK_STREAM, 0);
+  if (this->server_socket_ < 0) {
+    ESP_LOGE(TAG, "Failed to create server socket");
+    return;
+  }
+
+  // Set socket options
+  int reuse = 1;
+  setsockopt(this->server_socket_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+  // Bind socket
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  addr.sin_port = htons(this->port_);
+
+  if (bind(this->server_socket_, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    ESP_LOGE(TAG, "Failed to bind server socket to port %u", this->port_);
+    close(this->server_socket_);
+    this->server_socket_ = -1;
+    return;
+  }
+
+  // Listen
+  if (listen(this->server_socket_, 1) < 0) {
+    ESP_LOGE(TAG, "Failed to listen on server socket");
+    close(this->server_socket_);
+    this->server_socket_ = -1;
+    return;
+  }
+
+  // Set socket to non-blocking
+  int flags = fcntl(this->server_socket_, F_GETFL, 0);
+  fcntl(this->server_socket_, F_SETFL, flags | O_NONBLOCK);
+
+  ESP_LOGI(TAG, "Modbus TCP Server listening on port %u", this->port_);
 }
 
 void ModbusTcpSlave::dump_config() {
@@ -108,27 +147,32 @@ void ModbusTcpSlave::dump_config() {
 }
 
 void ModbusTcpSlave::loop() {
-  if (!this->client_ || !this->client_.connected()) {
-    if (this->client_) {
-      this->client_.stop();
-    }
-    auto next_client = this->server_->available();
-    if (next_client) {
+  // Try to accept new connection
+  if (this->client_socket_ < 0 && this->server_socket_ >= 0) {
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_len = sizeof(client_addr);
+    int new_socket = accept(this->server_socket_, (struct sockaddr *)&client_addr, &client_addr_len);
+    if (new_socket >= 0) {
+      this->client_socket_ = new_socket;
       ESP_LOGI(TAG, "Client connected");
-      this->client_ = next_client;
-      this->client_.setTimeout(50);
       this->rx_buffer_.clear();
-    } else {
-      return;
     }
   }
 
-  while (this->client_.available() > 0) {
-    this->rx_buffer_.push_back(this->client_.read());
-  }
-
-  if (!this->rx_buffer_.empty()) {
-    this->process_buffer_();
+  // Read from client
+  if (this->client_socket_ >= 0) {
+    uint8_t buffer[256];
+    ssize_t n = recv(this->client_socket_, buffer, sizeof(buffer), MSG_DONTWAIT);
+    if (n > 0) {
+      for (ssize_t i = 0; i < n; i++) {
+        this->rx_buffer_.push_back(buffer[i]);
+      }
+      this->process_buffer_();
+    } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+      close(this->client_socket_);
+      this->client_socket_ = -1;
+      ESP_LOGI(TAG, "Client disconnected");
+    }
   }
 }
 
@@ -288,7 +332,7 @@ void ModbusTcpSlave::send_exception_(uint16_t transaction_id, uint8_t function_c
 }
 
 void ModbusTcpSlave::send_response_(uint16_t transaction_id, const std::vector<uint8_t> &pdu) {
-  if (!this->client_ || !this->client_.connected()) {
+  if (this->client_socket_ < 0) {
     return;
   }
 
@@ -303,7 +347,7 @@ void ModbusTcpSlave::send_response_(uint16_t transaction_id, const std::vector<u
   frame.push_back(static_cast<uint8_t>(length & 0xFF));
   frame.push_back(this->unit_id_);
   frame.insert(frame.end(), pdu.begin(), pdu.end());
-  this->client_.write(frame.data(), frame.size());
+  send(this->client_socket_, frame.data(), frame.size(), 0);
 }
 
 ServerRegister *ModbusTcpSlave::find_register_(uint16_t address) const {

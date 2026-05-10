@@ -10,7 +10,7 @@ from esphome.const import (
     CONF_TIMEOUT,
 )
 
-DEPENDENCIES = ["wifi"]
+DEPENDENCIES = ["wifi", "modbus"]
 MULTI_CONF = True
 
 CONF_HOST = "host"

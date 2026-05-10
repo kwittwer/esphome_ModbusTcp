@@ -5,12 +5,13 @@ from esphome.components.modbus.helpers import (
     TYPE_REGISTER_MAP,
 )
 import esphome.config_validation as cv
-from esphome.const import CONF_ADDRESS, CONF_ENABLED, CONF_ID, CONF_PORT
+from esphome.const import CONF_ADDRESS, CONF_ID, CONF_PORT
 
-DEPENDENCIES = ["wifi"]
+DEPENDENCIES = ["wifi", "modbus"]
 MULTI_CONF = True
 
 CONF_COURTESY_RESPONSE = "courtesy_response"
+CONF_ENABLED = "enabled"
 CONF_READ_LAMBDA = "read_lambda"
 CONF_REGISTER_LAST_ADDRESS = "register_last_address"
 CONF_REGISTER_VALUE = "register_value"

@@ -7,12 +7,9 @@
 
 #include <string>
 #include <vector>
-
-#ifdef USE_ESP32
-#include <WiFi.h>
-#elif defined(USE_ESP8266)
-#include <ESP8266WiFi.h>
-#endif
+#include <sys/socket.h>
+#include <netdb.h>
+#include <unistd.h>
 
 namespace esphome::modbus_tcp_master {
 
@@ -57,7 +54,7 @@ class ModbusTcpMaster : public PollingComponent {
   uint8_t unit_id_{1};
   uint32_t timeout_ms_{5000};
   uint16_t transaction_id_{0};
-  WiFiClient client_;
+  int socket_fd_{-1};
   std::vector<ModbusTcpSensor *> sensors_;
 };
 

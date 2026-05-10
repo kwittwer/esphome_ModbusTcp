@@ -3,6 +3,8 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
+#include <cstring>
+
 namespace esphome::modbus_tcp_master {
 
 static const char *const TAG = "modbus_tcp_master";
@@ -85,29 +87,61 @@ void ModbusTcpMaster::dump_config() {
 }
 
 bool ModbusTcpMaster::ensure_connected_() {
-  if (this->client_.connected()) {
+  if (this->socket_fd_ >= 0) {
     return true;
   }
 
-  this->client_.stop();
-  this->client_.setTimeout(this->timeout_ms_);
+  struct addrinfo hints, *res, *res0;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+
   ESP_LOGI(TAG, "Connecting to %s:%u", this->host_.c_str(), this->port_);
-  if (!this->client_.connect(this->host_.c_str(), this->port_)) {
+  
+  int error = getaddrinfo(this->host_.c_str(), std::to_string(this->port_).c_str(), &hints, &res0);
+  if (error) {
+    ESP_LOGW(TAG, "DNS lookup failed for %s", this->host_.c_str());
+    return false;
+  }
+
+  this->socket_fd_ = -1;
+  for (res = res0; res; res = res->ai_next) {
+    this->socket_fd_ = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (this->socket_fd_ < 0) continue;
+
+    if (connect(this->socket_fd_, res->ai_addr, res->ai_addrlen) == 0) break;
+    close(this->socket_fd_);
+    this->socket_fd_ = -1;
+  }
+  freeaddrinfo(res0);
+
+  if (this->socket_fd_ < 0) {
     ESP_LOGW(TAG, "Connection to %s:%u failed", this->host_.c_str(), this->port_);
     return false;
   }
+
+  // Set socket timeout
+  struct timeval tv;
+  tv.tv_sec = this->timeout_ms_ / 1000;
+  tv.tv_usec = (this->timeout_ms_ % 1000) * 1000;
+  setsockopt(this->socket_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
   ESP_LOGI(TAG, "Connected to %s:%u", this->host_.c_str(), this->port_);
   return true;
 }
 
 bool ModbusTcpMaster::read_exact_(uint8_t *buffer, size_t length) {
-  size_t received = this->client_.readBytes(buffer, length);
-  if (received != length) {
-    ESP_LOGW(TAG, "Incomplete TCP response (%u/%u bytes)", static_cast<unsigned>(received),
-             static_cast<unsigned>(length));
-    this->client_.stop();
-    return false;
+  size_t received = 0;
+  while (received < length) {
+    ssize_t n = recv(this->socket_fd_, buffer + received, length - received, 0);
+    if (n <= 0) {
+      ESP_LOGW(TAG, "Incomplete TCP response (%u/%u bytes)", static_cast<unsigned>(received),
+               static_cast<unsigned>(length));
+      close(this->socket_fd_);
+      this->socket_fd_ = -1;
+      return false;
+    }
+    received += n;
   }
   return true;
 }
@@ -140,12 +174,12 @@ bool ModbusTcpMaster::read_registers_(ModbusTcpSensor *item, std::vector<uint8_t
       static_cast<uint8_t>(item->register_count_ & 0xFF),
   };
 
-  if (this->client_.write(request, sizeof(request)) != sizeof(request)) {
+  if (send(this->socket_fd_, request, sizeof(request), 0) != sizeof(request)) {
     ESP_LOGW(TAG, "Failed to send request to %s:%u", this->host_.c_str(), this->port_);
-    this->client_.stop();
+    close(this->socket_fd_);
+    this->socket_fd_ = -1;
     return false;
   }
-  this->client_.flush();
 
   uint8_t header[7];
   if (!this->read_exact_(header, sizeof(header))) {
@@ -159,7 +193,8 @@ bool ModbusTcpMaster::read_registers_(ModbusTcpSensor *item, std::vector<uint8_t
 
   if (response_transaction != transaction_id || protocol_id != 0 || unit_id != this->unit_id_ || length < 2) {
     ESP_LOGW(TAG, "Invalid Modbus TCP header received");
-    this->client_.stop();
+    close(this->socket_fd_);
+    this->socket_fd_ = -1;
     return false;
   }
 
